@@ -1,10 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { useAuth } from '../AuthProvider'
 
 export function Navbar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const { user, signOut } = useAuth()
   
   return (
     <nav className="border-b bg-background">
@@ -29,12 +32,29 @@ export function Navbar() {
               >
                 Create Poll
               </Link>
-              <Link
-                href="/auth/login"
-                className={`transition-colors hover:text-foreground/80 ${pathname.startsWith('/auth') ? 'text-foreground' : 'text-foreground/60'}`}
-              >
-                Login
-              </Link>
+              {user ? (
+                <>
+                  <span className="text-sm font-medium text-foreground/80">
+                    {user.email}
+                  </span>
+                  <button
+                    onClick={async () => {
+                      await signOut()
+                      router.push('/')
+                    }}
+                    className="transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <Link
+                  href="/auth/login"
+                  className={`transition-colors hover:text-foreground/80 ${pathname.startsWith('/auth') ? 'text-foreground' : 'text-foreground/60'}`}
+                >
+                  Login
+                </Link>
+              )}
             </nav>
           </div>
         </div>

@@ -8,6 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.56.0",
     "class-variance-authority": "^0.7.1",
     "next": "15.5.2",
     "react": "19.1.0",
