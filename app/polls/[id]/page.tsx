@@ -1,68 +1,62 @@
+
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../../components/ui/card'
 import { Button } from '../../../components/ui/button'
-import type { Poll } from '../../../types/poll'
+import { createBrowserClient } from '../../../lib/supabase'
+import Link from 'next/link'
+import { useAuth } from '../../../components/AuthProvider'
 
-// Mock data for polls (same as in the polls list page)
-const mockPolls: Poll[] = [
-  {
-    id: '1',
-    title: 'Favorite Programming Language',
-    description: 'What programming language do you prefer to work with?',
-    options: [
-      { id: '1-1', text: 'JavaScript', votes: 42 },
-      { id: '1-2', text: 'Python', votes: 38 },
-      { id: '1-3', text: 'Java', votes: 25 },
-      { id: '1-4', text: 'C#', votes: 18 }
-    ],
-    createdBy: 'user1',
-    createdAt: '2023-06-15T10:30:00Z',
-    isActive: true
-  },
-  {
-    id: '2',
-    title: 'Best Frontend Framework',
-    description: 'Which frontend framework do you prefer?',
-    options: [
-      { id: '2-1', text: 'React', votes: 56 },
-      { id: '2-2', text: 'Vue', votes: 34 },
-      { id: '2-3', text: 'Angular', votes: 29 },
-      { id: '2-4', text: 'Svelte', votes: 22 }
-    ],
-    createdBy: 'user2',
-    createdAt: '2023-06-18T14:45:00Z',
-    isActive: true
-  }
-]
+type PollRow = {
+  id: string
+  title: string
+  description: string | null
+  created_at: string
+  closes_at: string | null
+}
 
-export default function PollDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  // Use React.use() to unwrap the params Promise
-  const { id } = React.use(params)
+type OptionRow = {
+  id: string
+  label: string
+}
+
+export default function PollDetailPage() {
   const router = useRouter()
-  const [poll, setPoll] = useState<Poll | null>(null)
+  const params = useParams<{ id: string }>()
+  const id = params?.id
+  const { user } = useAuth()
+  const [poll, setPoll] = useState<PollRow | null>(null)
+  const [options, setOptions] = useState<OptionRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string>('')
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  const [hasVoted, setHasVoted] = useState(false)
-  const [totalVotes, setTotalVotes] = useState(0)
+  const [successMsg, setSuccessMsg] = useState<string>('')
 
   useEffect(() => {
-    // Simulate API fetch with a delay
     const fetchPoll = async () => {
+      if (!id) return
+      setIsLoading(true)
+      setError('')
       try {
-        // In a real app, this would be an API call
-        setTimeout(() => {
-          const foundPoll = mockPolls.find(p => p.id === id)
-          if (foundPoll) {
-            setPoll(foundPoll)
-            setTotalVotes(foundPoll.options.reduce((sum, option) => sum + option.votes, 0))
-          }
-          setIsLoading(false)
-        }, 500)
-      } catch (error) {
-        console.error('Failed to fetch poll:', error)
+        const supabase = createBrowserClient()
+        const [{ data: pollData, error: pollError }, { data: optionsData, error: optionsError }] = await Promise.all([
+          supabase.from('polls').select('id, title, description, created_at, closes_at').eq('id', id).maybeSingle(),
+          supabase.from('poll_options').select('id, label').eq('poll_id', id).order('position', { ascending: true }),
+        ])
+
+        if (pollError) {
+          setError(pollError.message)
+        } else if (!pollData) {
+          setPoll(null)
+        } else {
+          setPoll(pollData)
+          setOptions(optionsData ?? [])
+        }
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to fetch poll')
+      } finally {
         setIsLoading(false)
       }
     }
@@ -70,24 +64,33 @@ export default function PollDetailPage({ params }: { params: Promise<{ id: strin
     fetchPoll()
   }, [id])
 
-  const handleVote = () => {
+  const handleVote = async () => {
     if (!poll || !selectedOption) return
-
-    // Update the poll with the new vote
-    const updatedOptions = poll.options.map(option => {
-      if (option.id === selectedOption) {
-        return { ...option, votes: option.votes + 1 }
+    setError('')
+    setSuccessMsg('')
+    try {
+      const supabase = createBrowserClient()
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token
+      const res = await fetch(`/api/polls/${id}/vote`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ optionId: selectedOption }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError(body?.error ?? 'Failed to submit vote')
+        return
       }
-      return option
-    })
-
-    const updatedPoll = { ...poll, options: updatedOptions }
-    setPoll(updatedPoll)
-    setHasVoted(true)
-    setTotalVotes(totalVotes + 1)
-
-    // In a real app, you would send this vote to your API
-    console.log('Vote submitted for option:', selectedOption)
+      setSuccessMsg('Vote submitted! Redirecting...')
+      setTimeout(() => router.push('/polls'), 1200)
+    } catch (e: any) {
+      setError(e?.message ?? 'Network error')
+    }
   }
 
   if (isLoading) {
@@ -118,74 +121,59 @@ export default function PollDetailPage({ params }: { params: Promise<{ id: strin
         ← Back to Polls
       </Button>
       
+      {error && (
+        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+      )}
+      {successMsg && (
+        <div className="mb-4 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700">{successMsg}</div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">{poll.title}</CardTitle>
           <CardDescription>
-            Created on {new Date(poll.createdAt).toLocaleDateString()}
+            Created on {new Date(poll.created_at).toLocaleDateString()}
           </CardDescription>
         </CardHeader>
         
         <CardContent className="space-y-6">
           <p>{poll.description}</p>
-          
-          <div className="space-y-4">
-            {poll.options.map((option) => {
-              const percentage = totalVotes > 0 ? Math.round((option.votes / totalVotes) * 100) : 0
-              
-              return (
-                <div key={option.id} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    {!hasVoted && (
-                      <input
-                        type="radio"
-                        id={option.id}
-                        name="poll-option"
-                        checked={selectedOption === option.id}
-                        onChange={() => setSelectedOption(option.id)}
-                        className="h-4 w-4"
-                      />
-                    )}
-                    <label 
-                      htmlFor={option.id} 
-                      className={`flex-grow ${hasVoted ? 'font-medium' : ''}`}
-                    >
-                      {option.text}
-                    </label>
-                    {hasVoted && (
-                      <span className="text-sm font-medium">
-                        {percentage}% ({option.votes} votes)
-                      </span>
-                    )}
-                  </div>
-                  
-                  {hasVoted && (
-                    <div className="h-2 w-full bg-secondary overflow-hidden rounded-full">
-                      <div 
-                        className="h-full bg-primary" 
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+
+          <div className="space-y-3">
+            {options.map((option) => (
+              <label key={option.id} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="poll-option"
+                  checked={selectedOption === option.id}
+                  onChange={() => setSelectedOption(option.id)}
+                  className="h-4 w-4"
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+            {options.length === 0 && (
+              <p className="text-sm text-muted-foreground">No options found for this poll.</p>
+            )}
           </div>
         </CardContent>
         
-        <CardFooter>
-          {!hasVoted ? (
+        <CardFooter className="flex gap-2">
+          {user?.id && (
+            <Link href={`/polls/${id}/edit`} className="flex-1">
+              <Button variant="outline" className="w-full">Edit</Button>
+            </Link>
+          )}
+          {poll?.closes_at && new Date(poll.closes_at) <= new Date() ? (
+            <span className="text-sm text-muted-foreground self-center">Poll closed</span>
+          ) : (
             <Button 
               onClick={handleVote} 
               disabled={!selectedOption}
-              className="w-full"
+              className="flex-1"
             >
               Submit Vote
             </Button>
-          ) : (
-            <p className="text-center w-full text-sm text-muted-foreground">
-              Thank you for voting! Total votes: {totalVotes}
-            </p>
           )}
         </CardFooter>
       </Card>
