@@ -11,23 +11,22 @@ import { Input } from '../../../../components/ui/input'
 import { Textarea } from '../../../../components/ui/textarea'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../../../../components/ui/form'
 import { createBrowserClient } from '../../../../lib/supabase'
+import type { PollFormValues } from '../../../../types/poll'
 
 const schema = z.object({
   title: z.string().min(3),
-  description: z.string().optional(),
-  isMultiple: z.boolean().optional(),
-  isPublic: z.boolean().optional(),
-  closesAt: z.string().optional(),
+  description: z.string().optional().default(''),
+  isMultiple: z.boolean().optional().default(false),
+  isPublic: z.boolean().optional().default(true),
+  closesAt: z.string().optional().default(''),
   options: z.array(z.object({ value: z.string().min(1) })).min(2),
 })
-
-type FormValues = z.input<typeof schema>
 
 export default function EditPollPage() {
   const params = useParams<{ id: string }>()
   const id = params?.id
   const router = useRouter()
-  const form = useForm<FormValues>({
+  const form = useForm<PollFormValues>({
     resolver: zodResolver(schema),
     defaultValues: { title: '', description: '', isMultiple: false, isPublic: true, closesAt: '', options: [{ value: '' }, { value: '' }] },
   })
@@ -51,19 +50,20 @@ export default function EditPollPage() {
         setApiError('Poll not found')
         return
       }
+      const pollData = poll as any
       form.reset({
-        title: poll.title,
-        description: poll.description ?? '',
-        isMultiple: poll.is_multiple ?? false,
-        isPublic: poll.is_public ?? true,
-        closesAt: poll.closes_at ? new Date(poll.closes_at).toISOString().slice(0,16) : '',
-        options: (opts ?? []).map(o => ({ value: o.label })),
+        title: pollData.title,
+        description: pollData.description ?? '',
+        isMultiple: pollData.is_multiple ?? false,
+        isPublic: pollData.is_public ?? true,
+        closesAt: pollData.closes_at ? new Date(pollData.closes_at).toISOString().slice(0,16) : '',
+        options: (opts ?? []).map((o: any) => ({ value: o.label })),
       })
     }
     load()
-  }, [id])
+  }, [id, form])
 
-  const onSubmit = async (values: FormValues) => {
+  const onSubmit = async (values: PollFormValues) => {
     setApiError('')
     setSuccessMsg('')
     try {
